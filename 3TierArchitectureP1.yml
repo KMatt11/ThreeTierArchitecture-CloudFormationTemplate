@@ -1,0 +1,251 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  # Creating the VPC
+  cloudVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join
+            - ''
+            - - !Ref 'AWS::StackName'
+              - '-cloudVPC'
+
+  # Route Table
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+
+   # Creating an internetGateway
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    DependsOn: cloudVPC
+
+  # InternetGatewayAttachment to VPC
+  InternetGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref cloudVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Create Public Subnet One
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.0.0/20
+      MapPublicIpOnLaunch: true
+
+  # Create Public Subnet Two
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.16.0/20
+      MapPublicIpOnLaunch: true
+
+  # Create Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+
+  # Create PublicRoute
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate Public Subnet One
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  # Associate Public Subnet Two
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  # Create Security Group
+  InstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: SecurityGroup-07
+      GroupDescription: Open HTTP (port 80) and SSH (port 22)
+      VpcId: !Ref 'cloudVPC'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # Create Launch Template
+  LaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: !Sub '${AWS::StackName}-launchTemplate4ASG'
+      LaunchTemplateData:
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            DeleteOnTermination: true
+            Groups:
+              - !Ref InstanceSecurityGroup
+        ImageId: ami-0022f774911c1d690
+        InstanceType: t2.micro
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install httpd -y
+            systemctl start httpd
+            systemctl enable httpd
+            amazon-linux-extras install epel -y
+            yum install stress -y
+        #SecurityGroupIds:
+        #  - !Ref InstanceSecurityGroup
+
+  # Create AutoScaling Group
+  AutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MaxSize: '5'
+      MinSize: '2'
+      DesiredCapacity: '2'
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      MetricsCollection:
+        - Granularity: 1Minute
+
+  # Create a Scaling Policy
+  ScalingPolicy07:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      ScalingAdjustment: '1'
+
+  # Create Private Subnet One
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.32.0/20
+      MapPublicIpOnLaunch: false
+
+  # Create Private Subnet Two
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.48.0/20
+      MapPublicIpOnLaunch: false
+
+  # Create Private Subnet Three
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.64.0/20
+      MapPublicIpOnLaunch: false
+
+  # Create Private Subnet Four
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.80.0/20
+      MapPublicIpOnLaunch: false
+
+ # Create Private Route Table
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'cloudVPC'
+
+  # Create PrivateRoute
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate Private Subnet One
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet1
+
+  # Associate Private Subnet Two
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2
+
+  # Create AutoScaling Group
+  AutoScalingGroup2:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MaxSize: '5'
+      MinSize: '2'
+      DesiredCapacity: '2'
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      MetricsCollection:
+        - Granularity: 1Minute
+
+  # Create a Scaling Policy
+  ScalingPolicy02:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      ScalingAdjustment: '1'
+
+  # Create Security Group
+  InstanceSecurityGroup2:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: SecurityGroup-08
+      GroupDescription: Open HTTP (port 80) and SSH (port 22)
+      VpcId: !Ref 'cloudVPC'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
